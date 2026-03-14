@@ -7,7 +7,7 @@ NOME_EC2_PUBLICA=ec2-publica-front
 NOME_EC2_PRIVADA=ec2-privada-back
 
 echo "criando a vpc"
-ID_VPC=$(aws ec2 create-vpc --cidr-block 10.0.0.0/16 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=vpc-cafeteria}]' --query 'Vpc.VpcId' --output text)
+ID_VPC=$(aws ec2 create-vpc --cidr-block 10.0.0.0/24 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=vpc-cafeteria}]' --query 'Vpc.VpcId' --output text)
 
 echo "criando internet gateway"
 ID_IGW=$(aws ec2 create-internet-gateway --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=igw-cafeteria}]' --query 'InternetGateway.InternetGatewayId' --output text)
@@ -18,11 +18,11 @@ aws ec2 attach-internet-gateway --vpc-id $ID_VPC --internet-gateway-id $ID_IGW
 echo "associados"
 
 echo "criando subnet pública"
-ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.1.0/24 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica}]' --query 'Subnet.SubnetId' --output text)
+ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.1.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet pública criada $ID_PUBLIC_SUBNET"
 
 echo "criando subnet privada"
-ID_PRIVATE_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.2.0/24 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-privada}]' --query 'Subnet.SubnetId' --output text)
+ID_PRIVATE_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.2.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-privada}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet privada criada $ID_PRIVATE_SUBNET"
 
 echo "criando rt pÚblica"
