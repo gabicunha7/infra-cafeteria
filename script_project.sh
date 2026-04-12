@@ -5,6 +5,7 @@ NOME_CHAVE=meupardechaves
 NOME_GRUPO=meugrupodeseguranca
 NOME_EC2_PUBLICA=ec2-publica-front
 NOME_EC2_PRIVADA=ec2-privada-back
+NOME_BUCKET=ee300f9350d05999fc4331d22fe699516fb90e1364c2be1ad0b9d2c58159d753
 
 echo "criando a vpc"
 ID_VPC=$(aws ec2 create-vpc --cidr-block 10.0.0.0/24 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=vpc-cafeteria}]' --query 'Vpc.VpcId' --output text)
@@ -101,4 +102,30 @@ echo "associando rt a subnet"
 aws ec2 associate-route-table --subnet-id $ID_PRIVATE_SUBNET --route-table-id $ID_RT_PRIVADA
 echo "associadas com sucesso"
 
+echo "Criando buckets"
+aws s3api create-bucket --bucket raw-${NOME_BUCKET}
+aws s3api create-bucket --bucket trusted-${NOME_BUCKET}
+aws s3api create-bucket --bucket client-${NOME_BUCKET}
+echo "Buckets criados"
 
+echo "permitindo acesso externo aos buckets"
+aws s3api put-public-access-block \
+    --bucket raw-${NOME_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+aws s3api put-public-access-block \
+    --bucket trusted-${NOME_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
+aws s3api put-public-access-block \
+    --bucket client-${NOME_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+echo "acesso permitido"
+
+echo "adicionando politica de acesso aos buckets"
+aws s3api put-bucket-policy --bucket raw-${NOME_BUCKET} --policy file://politica_raw.json
+
+aws s3api put-bucket-policy --bucket trusted-${NOME_BUCKET} --policy file://politica_trusted.json
+
+aws s3api put-bucket-policy --bucket client-${NOME_BUCKET} --policy file://politica_client.json
+echo "politica adicionada"
