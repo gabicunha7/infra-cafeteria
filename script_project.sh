@@ -5,7 +5,7 @@ NOME_CHAVE=meupardechaves
 NOME_GRUPO=meugrupodeseguranca
 NOME_EC2_PUBLICA=ec2-publica-front
 NOME_EC2_PRIVADA=ec2-privada-back
-NOME_BUCKET=ee300f9350d05999fc4331d22fe699516fb90e1364c2be1ad0b9d2c58159d753
+NOME_BUCKET=9d2c58159d753
 
 echo "criando a vpc"
 ID_VPC=$(aws ec2 create-vpc --cidr-block 10.0.0.0/24 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=vpc-cafeteria}]' --query 'Vpc.VpcId' --output text)
