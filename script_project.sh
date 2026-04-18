@@ -3,7 +3,9 @@
 
 NOME_CHAVE=meupardechaves
 NOME_GRUPO=meugrupodeseguranca
-NOME_EC2_PUBLICA=ec2-publica-front
+NOME_EC2_PUBLICA_LB=ec2-publica-front-lb
+NOME_EC2_PUBLICA_F1=ec2-publica-front-f1
+NOME_EC2_PUBLICA_F2=ec2-publica-front-f2
 NOME_EC2_PRIVADA=ec2-privada-back
 NOME_BUCKET=9d2c58159d753
 
@@ -19,11 +21,11 @@ aws ec2 attach-internet-gateway --vpc-id $ID_VPC --internet-gateway-id $ID_IGW
 echo "associados"
 
 echo "criando subnet pública"
-ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.1.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica}]' --query 'Subnet.SubnetId' --output text)
+ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet pública criada $ID_PUBLIC_SUBNET"
 
 echo "criando subnet privada"
-ID_PRIVATE_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.2.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-privada}]' --query 'Subnet.SubnetId' --output text)
+ID_PRIVATE_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.64/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-privada}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet privada criada $ID_PRIVATE_SUBNET"
 
 echo "criando rt pÚblica"
@@ -50,20 +52,43 @@ echo "permitindo acesso pela porta 22"
 aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 22 --cidr 0.0.0.0/0
 echo "acesso permitido"
 
-echo "tentando rodar instancia pública"
-ID_INSTANCIA_PUBLICA=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA}}]" --query 'Instances[0].InstanceId' --output text)
-echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA"
+echo "permitindo acesso pela porta 80"
+aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 80 --cidr 0.0.0.0/0
+echo "acesso permitido"
 
-echo "criando ip elastico para a instancia pública"
-ID_IP=$(aws ec2 allocate-address --domain vpc --query 'AllocationId' --region us-east-1 --output text)
+echo "tentando rodar instancia pública front 1"
+ID_INSTANCIA_PUBLICA_F1=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --user-data file://front1.sh --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_F1}}]" --query 'Instances[0].InstanceId' --output text)
+echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_F1"
+
+echo "criando ip elastico para a instancia pública front 1"
+ID_IP_F1=$(aws ec2 allocate-address --domain vpc --query 'AllocationId' --region us-east-1 --output text)
+echo "ip criado front 1"
+
+while true; do
+	ESTADO_INSTANCIA=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_F1} --query 'Reservations[*].Instances[*].State.Name' --output text --region us-east-1)
+	if [ "$ESTADO_INSTANCIA" == "running" ]; then
+		echo "Instancia Publica Rodando f1"
+		echo "associando os dois"
+		aws ec2 associate-address --instance-id ${ID_INSTANCIA_PUBLICA_F1} --allocation-id ${ID_IP_F1} --region us-east-1
+		break
+	fi
+	sleep 5
+done
+
+echo "tentando rodar instancia pública front 2"
+ID_INSTANCIA_PUBLICA_F2=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --user-data file://front2.sh --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_F2}}]" --query 'Instances[0].InstanceId' --output text)
+echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_F2"
+
+echo "criando ip elastico para a instancia pública f2"
+ID_IP_F2=$(aws ec2 allocate-address --domain vpc --query 'AllocationId' --region us-east-1 --output text)
 echo "ip criado"
 
 while true; do
-	ESTADO_INSTANCIA=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA} --query 'Reservations[*].Instances[*].State.Name' --output text --region us-east-1)
+	ESTADO_INSTANCIA=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_F2} --query 'Reservations[*].Instances[*].State.Name' --output text --region us-east-1)
 	if [ "$ESTADO_INSTANCIA" == "running" ]; then
-		echo "Instancia Publica Rodando"
+		echo "Instancia Publica Rodando f2"
 		echo "associando os dois"
-		aws ec2 associate-address --instance-id ${ID_INSTANCIA_PUBLICA} --allocation-id ${ID_IP} --region us-east-1
+		aws ec2 associate-address --instance-id ${ID_INSTANCIA_PUBLICA_F2} --allocation-id ${ID_IP_F2} --region us-east-1
 		break
 	fi
 	sleep 5
@@ -88,6 +113,55 @@ while true; do
         break
     fi
     sleep 5
+done
+
+IP_PRIVADO_F1=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_F1} \
+    --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text --region us-east-1)
+
+IP_PRIVADO_F2=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_F2} \
+    --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text --region us-east-1)
+
+cat > lb.sh <<EOF
+#!/bin/bash
+apt-get update -y
+apt-get install -y nginx
+
+cat > /etc/nginx/sites-available/default <<EOL
+upstream backend {
+    server ${IP_PRIVADO_F1}:80;
+    server ${IP_PRIVADO_F2}:80;
+}
+
+server {
+    listen 80;
+
+    location / {
+        proxy_pass http://backend;
+    }
+}
+EOL
+
+systemctl restart nginx
+systemctl enable nginx
+EOF
+
+echo "tentando rodar instancia pública load balancer"
+ID_INSTANCIA_PUBLICA_LB=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --user-data file://lb.sh --security-group-ids ${ID_GRUPO} --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_LB}}]" --query 'Instances[0].InstanceId' --output text)
+echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_LB"
+
+echo "criando ip elastico para a instancia pública do load balancer"
+ID_IP_LB=$(aws ec2 allocate-address --domain vpc --query 'AllocationId' --region us-east-1 --output text)
+echo "ip criado"
+
+while true; do
+	ESTADO_INSTANCIA=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_LB} --query 'Reservations[*].Instances[*].State.Name' --output text --region us-east-1)
+	if [ "$ESTADO_INSTANCIA" == "running" ]; then
+		echo "Instancia Publica do load balancer Rodando"
+		echo "associando os dois"
+		aws ec2 associate-address --instance-id ${ID_INSTANCIA_PUBLICA_LB} --allocation-id ${ID_IP_LB} --region us-east-1
+		break
+	fi
+	sleep 5
 done
 
 echo "criando rt privada"
