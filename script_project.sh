@@ -21,12 +21,16 @@ aws ec2 attach-internet-gateway --vpc-id $ID_VPC --internet-gateway-id $ID_IGW
 echo "associados"
 
 echo "criando subnet pública"
-ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica}]' --query 'Subnet.SubnetId' --output text)
+ID_PUBLIC_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.0/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica-a}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet pública criada $ID_PUBLIC_SUBNET"
 
 echo "criando subnet privada"
 ID_PRIVATE_SUBNET=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.64/26 --availability-zone us-east-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-privada}]' --query 'Subnet.SubnetId' --output text)
 echo "subnet privada criada $ID_PRIVATE_SUBNET"
+
+echo "criando subnet pública 2"
+ID_PUBLIC_SUBNET_2=$(aws ec2 create-subnet --vpc-id $ID_VPC --cidr-block 10.0.0.128/26 --availability-zone us-east-1b --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=subnet-publica-b}]' --query 'Subnet.SubnetId' --output text)
+echo "subnet pública criada $ID_PUBLIC_SUBNET_2"
 
 echo "criando rt pÚblica"
 ID_RT_PUBLICA=$(aws ec2 create-route-table --vpc-id $ID_VPC --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=rt-publica}]' --query 'RouteTable.RouteTableId' --output text)
@@ -36,8 +40,12 @@ echo "criando rota para igw"
 aws ec2 create-route --route-table-id $ID_RT_PUBLICA --destination-cidr-block 0.0.0.0/0 --gateway-id $ID_IGW
 echo "criada"
 
-echo "associando igw a rota"
+echo "associando subnet 1 a rota"
 aws ec2 associate-route-table --subnet-id $ID_PUBLIC_SUBNET --route-table-id $ID_RT_PUBLICA
+echo "associadas"
+
+echo "associando subent 2 a rota"
+aws ec2 associate-route-table --subnet-id $ID_PUBLIC_SUBNET_2 --route-table-id $ID_RT_PUBLICA
 echo "associadas"
 
 echo "criando par de chaves"
@@ -76,7 +84,7 @@ while true; do
 done
 
 echo "tentando rodar instancia pública front 2"
-ID_INSTANCIA_PUBLICA_F2=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --user-data file://front2.sh --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_F2}}]" --query 'Instances[0].InstanceId' --output text)
+ID_INSTANCIA_PUBLICA_F2=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --user-data file://front2.sh --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET_2} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_F2}}]" --query 'Instances[0].InstanceId' --output text)
 echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_F2"
 
 echo "criando ip elastico para a instancia pública f2"

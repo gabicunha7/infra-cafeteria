@@ -4,8 +4,8 @@ apt-get install -y nginx
 
 cat > /etc/nginx/sites-available/default <<EOL
 upstream backend {
-    server 10.0.0.55:80;
-    server 10.0.0.13:80;
+    server 10.0.0.18:80;
+    server 10.0.0.155:80;
 }
 
 server {
