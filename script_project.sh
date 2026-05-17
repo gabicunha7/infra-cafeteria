@@ -64,6 +64,96 @@ echo "permitindo acesso pela porta 80"
 aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 80 --cidr 0.0.0.0/0
 echo "acesso permitido"
 
+echo "permitindo acesso pela porta 2049"
+aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 2049 --cidr 10.0.0.0/24
+echo "acesso permitido"
+
+
+echo "criando EFS"
+ID_EFS=$(aws efs create-file-system \
+    --performance-mode generalPurpose \
+    --throughput-mode bursting \
+    --tags Key=Name,Value=efs-cafeteria \
+    --query 'FileSystemId' --output text)
+echo "EFS criado $ID_EFS"
+
+while true; do
+    ESTADO_EFS=$(aws efs describe-file-systems \
+        --file-system-id $ID_EFS \
+        --query 'FileSystems[0].LifeCycleState' \
+        --output text)
+    if [ "$ESTADO_EFS" == "available" ]; then
+        echo "EFS disponível"
+        break
+    fi
+    sleep 10
+done
+
+echo "criando mount target para subnet publica 1"
+aws efs create-mount-target \
+    --file-system-id $ID_EFS \
+    --subnet-id $ID_PUBLIC_SUBNET \
+    --security-groups $ID_GRUPO
+
+echo "criando mount target para subnet publica 2"
+aws efs create-mount-target \
+    --file-system-id $ID_EFS \
+    --subnet-id $ID_PUBLIC_SUBNET_2 \
+    --security-groups $ID_GRUPO
+
+echo "gerando front1.sh com ID do EFS"
+cat > front1.sh <<EOF
+#!/bin/bash
+apt-get update -y
+DEBIAN_FRONTEND=noninteractive apt-get install -y git binutils make gcc nginx nfs-common
+
+# Tenta instalar amazon-efs-utils
+git clone https://github.com/aws/efs-utils /tmp/efs-utils
+cd /tmp/efs-utils
+./build-deb.sh
+apt-get install -y ./build/amazon-efs-utils*deb || echo "amazon-efs-utils não disponível, usando NFS comum"
+
+systemctl start nginx
+systemctl enable nginx
+
+mkdir -p /var/www/html
+
+mount -t nfs4 ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html
+echo '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Cafeteria</title>
+</head>
+<body>
+<h1>Aplicação Web Cafeteria</h1>
+</body>
+</html>' > /var/www/html/index.html
+
+systemctl restart nginx
+EOF
+
+echo "gerando front2.sh com ID do EFS"
+cat > front2.sh <<EOF
+#!/bin/bash
+apt-get update -y
+DEBIAN_FRONTEND=noninteractive apt-get install -y git binutils make gcc nginx nfs-common
+
+# Tenta instalar amazon-efs-utils
+git clone https://github.com/aws/efs-utils /tmp/efs-utils
+cd /tmp/efs-utils
+./build-deb.sh
+apt-get install -y ./build/amazon-efs-utils*deb || echo "amazon-efs-utils não disponível, usando NFS comum"
+
+systemctl start nginx
+systemctl enable nginx
+
+mkdir -p /var/www/html
+mount -t nfs4 ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html
+
+systemctl restart nginx
+EOF
+
 echo "tentando rodar instancia pública front 1"
 ID_INSTANCIA_PUBLICA_F1=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --security-group-ids ${ID_GRUPO} --user-data file://front1.sh --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_F1}}]" --query 'Instances[0].InstanceId' --output text)
 echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_F1"
@@ -129,48 +219,39 @@ IP_PRIVADO_F1=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA
 IP_PRIVADO_F2=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_F2} \
     --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text --region us-east-1)
 
-cat > lb.sh <<EOF
-#!/bin/bash
-apt-get update -y
-apt-get install -y nginx
+echo "criando application load balancer"
+ID_ALB=$(aws elbv2 create-load-balancer \
+    --name alb-cafeteria \
+    --subnets $ID_PUBLIC_SUBNET $ID_PUBLIC_SUBNET_2 \
+    --security-groups $ID_GRUPO \
+    --scheme internet-facing \
+    --type application \
+    --tags Key=Name,Value=alb-cafeteria \
+    --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+echo "ALB criado $ID_ALB"
 
-cat > /etc/nginx/sites-available/default <<EOL
-upstream backend {
-    server ${IP_PRIVADO_F1}:80;
-    server ${IP_PRIVADO_F2}:80;
-}
+echo "criando target group"
+ID_TG=$(aws elbv2 create-target-group \
+    --name tg-cafeteria \
+    --protocol HTTP \
+    --port 80 \
+    --vpc-id $ID_VPC \
+    --target-type instance \
+    --query 'TargetGroups[0].TargetGroupArn' --output text)
+echo "Target Group criado $ID_TG"
 
-server {
-    listen 80;
+echo "registrando instancias front1 e front2 no target group"
+aws elbv2 register-targets --target-group-arn $ID_TG \
+    --targets Id=$ID_INSTANCIA_PUBLICA_F1 Id=$ID_INSTANCIA_PUBLICA_F2
+echo "instancias registradas"
 
-    location / {
-        proxy_pass http://backend;
-    }
-}
-EOL
-
-systemctl restart nginx
-systemctl enable nginx
-EOF
-
-echo "tentando rodar instancia pública load balancer"
-ID_INSTANCIA_PUBLICA_LB=$(aws ec2 run-instances --image-id ami-0360c520857e3138f --region us-east-1 --count 1 --user-data file://lb.sh --security-group-ids ${ID_GRUPO} --instance-type t3.small --associate-public-ip-address --subnet-id ${ID_PUBLIC_SUBNET} --key-name ${NOME_CHAVE} --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":10, "VolumeType":"gp3","DeleteOnTermination":true}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NOME_EC2_PUBLICA_LB}}]" --query 'Instances[0].InstanceId' --output text)
-echo "instancia pública criada com sucesso $ID_INSTANCIA_PUBLICA_LB"
-
-echo "criando ip elastico para a instancia pública do load balancer"
-ID_IP_LB=$(aws ec2 allocate-address --domain vpc --query 'AllocationId' --region us-east-1 --output text)
-echo "ip criado"
-
-while true; do
-	ESTADO_INSTANCIA=$(aws ec2 describe-instances --instance-ids ${ID_INSTANCIA_PUBLICA_LB} --query 'Reservations[*].Instances[*].State.Name' --output text --region us-east-1)
-	if [ "$ESTADO_INSTANCIA" == "running" ]; then
-		echo "Instancia Publica do load balancer Rodando"
-		echo "associando os dois"
-		aws ec2 associate-address --instance-id ${ID_INSTANCIA_PUBLICA_LB} --allocation-id ${ID_IP_LB} --region us-east-1
-		break
-	fi
-	sleep 5
-done
+echo "criando listener para o ALB"
+aws elbv2 create-listener \
+    --load-balancer-arn $ID_ALB \
+    --protocol HTTP \
+    --port 80 \
+    --default-actions Type=forward,TargetGroupArn=$ID_TG
+echo "listener criado"
 
 echo "criando rt privada"
 ID_RT_PRIVADA=$(aws ec2 create-route-table --vpc-id $ID_VPC --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=rt-privada}]' --query 'RouteTable.RouteTableId' --output text)

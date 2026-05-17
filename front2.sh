@@ -1,29 +1,17 @@
 #!/bin/bash
 apt-get update -y
-apt-get install -y nginx
+DEBIAN_FRONTEND=noninteractive apt-get install -y git binutils make gcc nginx nfs-common
 
-sleep 10
+# Tenta instalar amazon-efs-utils
+git clone https://github.com/aws/efs-utils /tmp/efs-utils
+cd /tmp/efs-utils
+./build-deb.sh
+apt-get install -y ./build/amazon-efs-utils*deb || echo "amazon-efs-utils não disponível, usando NFS comum"
 
-TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+systemctl start nginx
+systemctl enable nginx
 
-INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
-
-PRIVATE_IP=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/local-ipv4)
-
-cat > /var/www/html/index.html <<EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Front 2</title>
-    <meta charset="UTF-8">
-</head>
-<body style="background-color:lightgreen; text-align:center;">
-    <h1>Bem-vindo ao Servidor Front 2</h1>
-    <p>Você está na instância 2 de id: $INSTANCE_ID</p>
-    <p>IP: $PRIVATE_IP</p>
-</body>
-</html>
-EOF
+mkdir -p /var/www/html
+mount -t nfs4 fs-028d85003f6b456b3.efs.us-east-1.amazonaws.com:/ /var/www/html
 
 systemctl restart nginx
-systemctl enable nginx
