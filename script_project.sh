@@ -12,6 +12,11 @@ NOME_BUCKET=9d2c58159d753
 echo "criando a vpc"
 ID_VPC=$(aws ec2 create-vpc --cidr-block 10.0.0.0/24 --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=vpc-cafeteria}]' --query 'Vpc.VpcId' --output text)
 
+echo "habilitando DNS na VPC"
+aws ec2 modify-vpc-attribute --vpc-id $ID_VPC --enable-dns-support
+aws ec2 modify-vpc-attribute --vpc-id $ID_VPC --enable-dns-hostnames
+echo "DNS habilitado na VPC $ID_VPC"
+
 echo "criando internet gateway"
 ID_IGW=$(aws ec2 create-internet-gateway --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=igw-cafeteria}]' --query 'InternetGateway.InternetGatewayId' --output text)
 echo "internet gateway criado"
@@ -65,23 +70,16 @@ aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp -
 echo "acesso permitido"
 
 echo "permitindo acesso pela porta 2049"
-aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 2049 --cidr 10.0.0.0/24
+aws ec2 authorize-security-group-ingress --group-id ${ID_GRUPO} --protocol tcp --port 2049 --cidr 0.0.0.0/0
 echo "acesso permitido"
 
 
 echo "criando EFS"
-ID_EFS=$(aws efs create-file-system \
-    --performance-mode generalPurpose \
-    --throughput-mode bursting \
-    --tags Key=Name,Value=efs-cafeteria \
-    --query 'FileSystemId' --output text)
+ID_EFS=$(aws efs create-file-system --performance-mode generalPurpose --throughput-mode bursting --tags Key=Name,Value=efs-cafeteria --query 'FileSystemId' --output text)
 echo "EFS criado $ID_EFS"
 
 while true; do
-    ESTADO_EFS=$(aws efs describe-file-systems \
-        --file-system-id $ID_EFS \
-        --query 'FileSystems[0].LifeCycleState' \
-        --output text)
+    ESTADO_EFS=$(aws efs describe-file-systems --file-system-id $ID_EFS --query 'FileSystems[0].LifeCycleState' --output text)
     if [ "$ESTADO_EFS" == "available" ]; then
         echo "EFS disponível"
         break
@@ -90,68 +88,92 @@ while true; do
 done
 
 echo "criando mount target para subnet publica 1"
-aws efs create-mount-target \
-    --file-system-id $ID_EFS \
-    --subnet-id $ID_PUBLIC_SUBNET \
-    --security-groups $ID_GRUPO
+aws efs create-mount-target --file-system-id $ID_EFS --subnet-id $ID_PUBLIC_SUBNET --security-groups $ID_GRUPO
 
 echo "criando mount target para subnet publica 2"
-aws efs create-mount-target \
-    --file-system-id $ID_EFS \
-    --subnet-id $ID_PUBLIC_SUBNET_2 \
-    --security-groups $ID_GRUPO
+aws efs create-mount-target --file-system-id $ID_EFS --subnet-id $ID_PUBLIC_SUBNET_2 --security-groups $ID_GRUPO
+
+echo "Aguardando mount targets do EFS ficarem disponíveis..."
+while true; do
+  STATES=$(aws efs describe-mount-targets --file-system-id $ID_EFS --query 'MountTargets[*].LifeCycleState' --output text)
+  DISPONIVEIS=$(echo "$STATES" | grep -o "available" | wc -l)
+  TOTAL=$(echo "$STATES" | wc -w)
+
+  if [ "$TOTAL" -gt 0 ] && [ "$DISPONIVEIS" -eq "$TOTAL" ]; then
+    echo "Todos os $TOTAL mount targets disponíveis"
+    break
+  fi
+
+  echo "Ainda aguardando... $DISPONIVEIS/$TOTAL disponíveis"
+  sleep 10
+done
 
 echo "gerando front1.sh com ID do EFS"
+CONTEUDO_HTML=$(printf '<!DOCTYPE html>\n<html>\n<head><meta charset="UTF-8"><title>Cafeteria</title></head>\n<body><h1>Aplicacao Web Cafeteria</h1></body>\n</html>' | base64 -w 0)
+
 cat > front1.sh <<EOF
 #!/bin/bash
-apt-get update -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y git binutils make gcc nginx nfs-common
+exec > /var/log/userdata.log 2>&1
+set -x
+apt update -y
+apt install -y nfs-common nginx
+systemctl stop nginx
 
-# Tenta instalar amazon-efs-utils
-git clone https://github.com/aws/efs-utils /tmp/efs-utils
-cd /tmp/efs-utils
-./build-deb.sh
-apt-get install -y ./build/amazon-efs-utils*deb || echo "amazon-efs-utils não disponível, usando NFS comum"
-
-systemctl start nginx
-systemctl enable nginx
+sleep 120
 
 mkdir -p /var/www/html
 
-mount -t nfs4 ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html
-echo '<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Cafeteria</title>
-</head>
-<body>
-<h1>Aplicação Web Cafeteria</h1>
-</body>
-</html>' > /var/www/html/index.html
+for i in \$(seq 1 15); do
+  if mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html; then
+    printf '%s\n' "${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html nfs4 defaults,_netdev 0 0" | tee -a /etc/fstab > /dev/null
+    break
+  fi
+  sleep 20
+done
 
-systemctl restart nginx
+if ! mountpoint -q /var/www/html; then
+  exit 1
+fi
+
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
+printf '%s' "${CONTEUDO_HTML}" | base64 -d > /var/www/html/index.html
+
+chown www-data:www-data /var/www/html/index.html
+chmod 644 /var/www/html/index.html
+systemctl start nginx
+systemctl enable nginx
 EOF
 
 echo "gerando front2.sh com ID do EFS"
 cat > front2.sh <<EOF
 #!/bin/bash
-apt-get update -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y git binutils make gcc nginx nfs-common
+exec > /var/log/userdata.log 2>&1
+set -x
+apt update -y
+apt install -y nfs-common nginx
+systemctl stop nginx
 
-# Tenta instalar amazon-efs-utils
-git clone https://github.com/aws/efs-utils /tmp/efs-utils
-cd /tmp/efs-utils
-./build-deb.sh
-apt-get install -y ./build/amazon-efs-utils*deb || echo "amazon-efs-utils não disponível, usando NFS comum"
-
-systemctl start nginx
-systemctl enable nginx
+sleep 120
 
 mkdir -p /var/www/html
-mount -t nfs4 ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html
 
-systemctl restart nginx
+for i in \$(seq 1 15); do
+  if mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html; then
+    printf '%s\n' "${ID_EFS}.efs.us-east-1.amazonaws.com:/ /var/www/html nfs4 defaults,_netdev 0 0" | tee -a /etc/fstab > /dev/null
+    break
+  fi
+  sleep 20
+done
+
+if ! mountpoint -q /var/www/html; then
+  exit 1
+fi
+
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
+systemctl start nginx
+systemctl enable nginx
 EOF
 
 echo "tentando rodar instancia pública front 1"
@@ -250,7 +272,7 @@ aws elbv2 create-listener \
     --load-balancer-arn $ID_ALB \
     --protocol HTTP \
     --port 80 \
-    --default-actions Type=forward,TargetGroupArn=$ID_TG
+    --default-actions Type=forward,TargetGroupArn=$ID_TG --output text
 echo "listener criado"
 
 echo "criando rt privada"
