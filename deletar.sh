@@ -3,7 +3,6 @@ set -euo pipefail
 
 REGION="us-east-1"
 
-# Nomes/tags usados no deploy original
 TAG_VPC_NAME="vpc-cafeteria"
 TAG_EFS_NAME="efs-cafeteria"
 TAG_ALB_NAME="alb-cafeteria"
@@ -17,7 +16,6 @@ BUCKET_CLIENT="client-9d2c58159d753"
 echo "Região: $REGION"
 echo "Iniciando remoção da infraestrutura..."
 
-# Helper: espera até condição com timeout
 wait_for() {
   local desc="$1"; shift
   local cmd="$*"
@@ -39,7 +37,6 @@ wait_for() {
   done
 }
 
-# 1) localizar VPC
 VPC_ID=$(aws ec2 describe-vpcs --region $REGION --filters "Name=tag:Name,Values=${TAG_VPC_NAME}" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
 if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ]; then
   echo "VPC com tag Name=${TAG_VPC_NAME} não encontrada. Saindo."
@@ -47,11 +44,9 @@ if [ "$VPC_ID" = "None" ] || [ -z "$VPC_ID" ]; then
 fi
 echo "VPC encontrada: $VPC_ID"
 
-# 2) Deletar ALB (listeners -> alb -> target group)
 ALB_ARN=$(aws elbv2 describe-load-balancers --region $REGION --names "${TAG_ALB_NAME}" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || echo "")
 if [ -n "$ALB_ARN" ]; then
   echo "ALB encontrado: $ALB_ARN"
-  # deletar listeners
   LISTENER_ARNS=$(aws elbv2 describe-listeners --load-balancer-arn $ALB_ARN --region $REGION --query 'Listeners[*].ListenerArn' --output text || echo "")
   for l in $LISTENER_ARNS; do
     echo "Deletando listener $l"
@@ -67,15 +62,12 @@ else
   echo "ALB não encontrado, pulando."
 fi
 
-# Deletar target groups com nome tg-cafeteria (ou associados ao ALB)
 TG_ARNS=$(aws elbv2 describe-target-groups --region $REGION --names "tg-cafeteria" --query 'TargetGroups[*].TargetGroupArn' --output text 2>/dev/null || echo "")
 for tg in $TG_ARNS; do
   echo "Deletando target group $tg"
-  # tentar deregistrar targets (não estritamente necessário)
   aws elbv2 delete-target-group --target-group-arn $tg --region $REGION || true
 done
 
-# 3) Terminar instâncias que pertencem ao projeto (busca por tags Name que começam com ec2-publica-front- ou ec2-privada-back)
 echo "Localizando instâncias com tags do projeto..."
 INSTANCE_IDS=$(aws ec2 describe-instances \
   --region $REGION \
@@ -96,7 +88,6 @@ else
   echo "Nenhuma instância encontrada para terminar."
 fi
 
-# 4) Deletar NAT Gateway (procura por tag e estado available)
 NAT_ID=$(aws ec2 describe-nat-gateways \
   --region $REGION \
   --filters "Name=tag:Name,Values=${TAG_NAT_NAME}" "Name=state,Values=available" \
@@ -112,11 +103,9 @@ else
   echo "Nenhum NAT Gateway em estado 'available' encontrado com a tag ${TAG_NAT_NAME}, pulando."
 fi
 
-# 5) Liberar Elastic IPs associados (alocações sem tag podem existir)
 echo "Procurando Elastic IPs associados a instâncias terminadas ou soltos..."
 ALLOC_IDS=$(aws ec2 describe-addresses --region $REGION --query 'Addresses[?AllocationId!=null].AllocationId' --output text || echo "")
 for alloc in $ALLOC_IDS; do
-  # verificar se está associado
   ASSOC_ID=$(aws ec2 describe-addresses --region $REGION --allocation-ids $alloc --query 'Addresses[0].AssociationId' --output text || echo "")
   if [ -n "$ASSOC_ID" ] && [ "$ASSOC_ID" != "None" ]; then
     echo "Desassociando EIP allocation $alloc (association $ASSOC_ID)"
@@ -126,7 +115,6 @@ for alloc in $ALLOC_IDS; do
   aws ec2 release-address --region $REGION --allocation-id $alloc || true
 done
 
-# 6) EFS: deletar mount targets, depois filesystem
 EFS_ID=$(aws efs describe-file-systems \
   --region $REGION \
   --query "FileSystems[?Tags[?Key=='Name' && Value=='${TAG_EFS_NAME}']].FileSystemId | [0]" \
@@ -156,7 +144,6 @@ else
   echo "EFS não encontrado, pulando."
 fi
 
-# 7) Deletar security group
 SG_ID=$(aws ec2 describe-security-groups --region $REGION --filters "Name=group-name,Values=${SEC_GROUP_NAME}" --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "")
 if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
   echo "Deletando security group $SG_ID"
@@ -165,12 +152,10 @@ else
   echo "Security group ${SEC_GROUP_NAME} não encontrado."
 fi
 
-# 8) Deletar route tables (rt-publica, rt-privada) - precisa remover associações não principais
 for RT_NAME in "rt-publica" "rt-privada"; do
   RT_ID=$(aws ec2 describe-route-tables --region $REGION --filters "Name=tag:Name,Values=${RT_NAME}" --query 'RouteTables[0].RouteTableId' --output text 2>/dev/null || echo "")
   if [ -n "$RT_ID" ] && [ "$RT_ID" != "None" ]; then
     echo "Processando route table $RT_NAME ($RT_ID)"
-    # remover associações que não são main
     ASSOC_IDS=$(aws ec2 describe-route-tables --region $REGION --route-table-ids $RT_ID --query 'RouteTables[0].Associations[?Main==`false`].RouteTableAssociationId' --output text || echo "")
     for a in $ASSOC_IDS; do
       echo "Removendo associação $a"
@@ -183,7 +168,6 @@ for RT_NAME in "rt-publica" "rt-privada"; do
   fi
 done
 
-# 9) Deletar subnets (públicas e privadas)
 for SUB_CIDR in "subnet-publica-a" "subnet-publica-b" "subnet-privada"; do
   SUB_ID=$(aws ec2 describe-subnets --region $REGION --filters "Name=tag:Name,Values=${SUB_CIDR}" --query 'Subnets[0].SubnetId' --output text 2>/dev/null || echo "")
   if [ -n "$SUB_ID" ] && [ "$SUB_ID" != "None" ]; then
@@ -194,7 +178,6 @@ for SUB_CIDR in "subnet-publica-a" "subnet-publica-b" "subnet-privada"; do
   fi
 done
 
-# 10) Desanexar e deletar Internet Gateway
 IGW_ID=$(aws ec2 describe-internet-gateways --region $REGION --filters "Name=tag:Name,Values=igw-cafeteria" --query 'InternetGateways[0].InternetGatewayId' --output text 2>/dev/null || echo "")
 if [ -n "$IGW_ID" ] && [ "$IGW_ID" != "None" ]; then
   echo "Desanexando IGW $IGW_ID da VPC $VPC_ID"
@@ -205,25 +188,20 @@ else
   echo "IGW não encontrado."
 fi
 
-# 11) Deletar VPC (após subnets, route tables, IGW removidos)
 echo "Tentando deletar VPC $VPC_ID"
 aws ec2 delete-vpc --region $REGION --vpc-id $VPC_ID || true
 echo "VPC $VPC_ID solicitada para exclusão (pode falhar se ainda houver dependências)."
 
-# 12) Deletar key pair
 echo "Deletando key pair $KEY_NAME"
 aws ec2 delete-key-pair --region $REGION --key-name $KEY_NAME || true
 if [ -f "${KEY_NAME}.pem" ]; then
   rm -f "${KEY_NAME}.pem" || true
 fi
 
-# 13) Esvaziar e deletar buckets S3
 for BUCKET in "$BUCKET_RAW" "$BUCKET_TRUSTED" "$BUCKET_CLIENT"; do
   if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
     echo "Esvaziando bucket $BUCKET"
-    # remover objetos e versões (se houver versioning)
     aws s3 rm "s3://$BUCKET" --recursive || true
-    # deletar bucket
     aws s3api delete-bucket --bucket "$BUCKET" --region $REGION || true
     echo "Bucket $BUCKET deletado (ou solicitação enviada)."
   else
