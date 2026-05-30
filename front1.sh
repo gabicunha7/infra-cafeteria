@@ -10,8 +10,8 @@ sleep 120
 mkdir -p /var/www/html
 
 for i in $(seq 1 15); do
-  if mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport fs-0cc29b6dafc99a4b7.efs.us-east-1.amazonaws.com:/ /var/www/html; then
-    printf '%s\n' "fs-0cc29b6dafc99a4b7.efs.us-east-1.amazonaws.com:/ /var/www/html nfs4 defaults,_netdev 0 0" | tee -a /etc/fstab > /dev/null
+  if mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport fs-0f25ddbac2419dae7.efs.us-east-1.amazonaws.com:/ /var/www/html; then
+    printf '%s\n' "fs-0f25ddbac2419dae7.efs.us-east-1.amazonaws.com:/ /var/www/html nfs4 defaults,_netdev 0 0" | tee -a /etc/fstab > /dev/null
     break
   fi
   sleep 20
