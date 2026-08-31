@@ -4,8 +4,7 @@ front_container_name: cafeteria-front
 front_host_port: 80
 front_container_port: 80
 
-# Preencha estes 3 apenas se a imagem for PRIVADA no Docker Hub.
-# Nao commite senha em texto puro - passe via --extra-vars ou ansible-vault na hora de rodar.
+
 front_dockerhub_login: false
 front_dockerhub_username: ""
 front_dockerhub_password: ""

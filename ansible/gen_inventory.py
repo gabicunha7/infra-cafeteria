@@ -12,13 +12,6 @@ import sys
 
 
 def carregar_json_stdin():
-    """Le o stdin de forma tolerante a codificacao.
-
-    O PowerShell (Windows), ao redirecionar com '>', costuma salvar o
-    arquivo em UTF-16 (com BOM) em vez de UTF-8 - isso faz o json.load
-    padrao falhar com "Expecting value: line 1 column 1". Aqui detectamos
-    o BOM e decodificamos com a codificacao certa antes de dar parse.
-    """
     raw = sys.stdin.buffer.read()
 
     if raw.startswith(b"\xff\xfe"):
@@ -30,8 +23,6 @@ def carregar_json_stdin():
     else:
         texto = raw.decode("utf-8")
 
-    # Remove o caractere de BOM (U+FEFF) que pode sobrar no inicio do texto
-    # mesmo depois de decodificado corretamente.
     texto = texto.lstrip("\ufeff")
 
     return json.loads(texto)

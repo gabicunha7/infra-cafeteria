@@ -1,5 +1,4 @@
 #!/bin/bash
-# Teste rapido de conexao com as instancias de front, sem depender do ansible.cfg.
 set -e
 cd "$(dirname "$0")"
 

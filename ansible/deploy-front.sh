@@ -1,6 +1,4 @@
 #!/bin/bash
-# Roda o playbook do front sem depender do ansible.cfg (que o WSL ignora
-# em pastas do Windows por ser "world-writable"). Passa tudo explicito.
 set -e
 cd "$(dirname "$0")"
 
