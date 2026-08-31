@@ -1,0 +1,8 @@
+---
+- name: Deploy do frontend containerizado da cafeteria
+  hosts: front
+  become: true
+
+  roles:
+    - docker
+    - app

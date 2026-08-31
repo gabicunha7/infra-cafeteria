@@ -1,0 +1,25 @@
+---
+- name: Login no Docker Hub (apenas se a imagem for privada)
+  community.docker.docker_login:
+    username: "{{ front_dockerhub_username }}"
+    password: "{{ front_dockerhub_password }}"
+  when: front_dockerhub_login | bool
+
+- name: Baixar a imagem mais recente do frontend
+  community.docker.docker_image:
+    name: "{{ front_image }}"
+    source: pull
+    force_source: true
+
+- name: Subir (ou atualizar) o container do frontend
+  community.docker.docker_container:
+    name: "{{ front_container_name }}"
+    image: "{{ front_image }}"
+    state: started
+    restart_policy: unless-stopped
+    recreate: true
+    pull: true
+    ports:
+      - "{{ front_host_port }}:{{ front_container_port }}"
+    env:
+      BACKEND_ALB_DNS: "{{ backend_alb_dns }}"
