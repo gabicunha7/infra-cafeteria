@@ -1,4 +1,4 @@
-# ── Buckets de tratamento de dados 
+# Buckets de tratamento de dados 
 resource "random_string" "bucket_suffix" {
   length  = 8
   lower   = true

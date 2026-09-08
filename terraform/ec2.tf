@@ -86,3 +86,17 @@ resource "aws_instance" "db" {
   tags = { Name = "${var.project_name}-db" }
 }
 
+
+# Instância privada de mensageria
+resource "aws_instance" "messaging_b" {
+  ami                    = var.ami_id
+  instance_type          = var.messaging_instance_type
+  subnet_id              = aws_subnet.private_messaging_b.id
+  vpc_security_group_ids = [aws_security_group.messaging.id]
+  key_name               = var.key_name
+  root_block_device {
+    volume_size = 10
+    volume_type = "gp3"
+  }
+  tags = { Name = "${var.project_name}-messaging-b" }
+}

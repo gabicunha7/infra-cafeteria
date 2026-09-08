@@ -1,0 +1,5 @@
+.ids.env
+.localstack-data/
+.env
+*.pem
+_to_delete/

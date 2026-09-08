@@ -1,0 +1,29 @@
+---
+- name: Login no Docker Hub (apenas se a imagem for privada)
+  community.docker.docker_login:
+    username: "{{ back_dockerhub_username }}"
+    password: "{{ back_dockerhub_password }}"
+  when: back_dockerhub_login | bool
+
+- name: Baixar a imagem mais recente do backend
+  community.docker.docker_image:
+    name: "{{ back_image }}"
+    source: pull
+    force_source: true
+
+- name: Subir (ou atualizar) o container do backend
+  community.docker.docker_container:
+    name: "{{ back_container_name }}"
+    image: "{{ back_image }}"
+    state: started
+    restart_policy: unless-stopped
+    recreate: true
+    pull: true
+    ports:
+      - "{{ back_host_port }}:{{ back_container_port }}"
+    env:
+      DB_HOST: "{{ hostvars['db']['ansible_host'] }}"
+      DB_PORT: "{{ back_db_port | string }}"
+      DB_NAME: "{{ back_db_name }}"
+      DB_USER: "{{ back_db_user }}"
+      DB_PASSWORD: "{{ back_db_password }}"

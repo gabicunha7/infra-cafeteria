@@ -1,0 +1,15 @@
+---
+back_image: gabicunha7/back-kento-cafe:latest
+back_container_name: cafeteria-back
+back_host_port: 8080
+back_container_port: 8080
+
+back_dockerhub_login: false
+back_dockerhub_username: ""
+back_dockerhub_password: ""
+
+# Conexao com o banco de dados (instancia "db" do inventario)
+back_db_port: 3306
+back_db_name: "cafeteria"
+back_db_user: "developer"
+back_db_password: "sptech@2026"

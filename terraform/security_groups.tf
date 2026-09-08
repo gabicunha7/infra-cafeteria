@@ -190,3 +190,45 @@ resource "aws_security_group" "efs" {
   tags = { Name = "${var.project_name}-efs" }
 }
 
+
+# Instância de mensageria
+resource "aws_security_group" "messaging" {
+  name        = "${var.project_name}-messaging"
+  description = "Security group da instancia de mensageria (RabbitMQ)"
+  vpc_id      = aws_vpc.this.id
+  ingress {
+    description     = "AMQP vindo do backend"
+    from_port       = var.rabbitmq_amqp_port
+    to_port         = var.rabbitmq_amqp_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.backend.id]
+  }
+  ingress {
+    description = "Painel de management do RabbitMQ (apenas da VPC)"
+    from_port   = var.rabbitmq_management_port
+    to_port     = var.rabbitmq_management_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+  ingress {
+    description = "SSH (apenas da VPC)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+  ingress {
+    description = "Node Exporter (apenas da VPC)"
+    from_port   = 9100
+    to_port     = 9100
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = { Name = "${var.project_name}-messaging" }
+}

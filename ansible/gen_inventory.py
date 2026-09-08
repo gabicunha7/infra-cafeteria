@@ -35,6 +35,18 @@ def val(key):
     return data[key]["value"]
 
 
+SSH_KEY = "~/.ssh/meupardechaves.pem"
+
+# ProxyJump (-o ProxyJump=...) nao herda a chave privada (-i) passada na
+# conexao principal, entao o salto pelo front-a cai nas chaves default
+# (id_rsa/id_ed25519), nenhuma existe, e da "Permission denied (publickey)".
+# ProxyCommand explicito resolve isso porque embute o -i certo no proprio
+# comando do jump.
+proxy_command = (
+    f'ssh -i {SSH_KEY} -o StrictHostKeyChecking=no -W %h:%p '
+    f'ubuntu@{val("front_a_public_ip")}'
+)
+
 out = f"""[front]
 front-a ansible_host={val("front_a_public_ip")}
 front-b ansible_host={val("front_b_public_ip")}
@@ -52,13 +64,13 @@ db
 
 [all:vars]
 ansible_user=ubuntu
-ansible_ssh_private_key_file=~/.ssh/meupardechaves.pem
+ansible_ssh_private_key_file={SSH_KEY}
 ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=10'
 backend_alb_dns={val("alb_backend_dns")}
 efs_dns={val("efs_dns_name")}
 
 [private:vars]
-ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ProxyJump=ubuntu@{val("front_a_public_ip")}'
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ProxyCommand="{proxy_command}"'
 """
 
 print(out.strip())

@@ -179,3 +179,29 @@ variable "s3_buckets_public" {
   type        = bool
   default     = false
 }
+
+# Mensageria
+variable "private_messaging_b_cidr" {
+  description = "Subnet privada da instância de mensageria (AZ-b)"
+  type        = string
+  default     = "10.0.7.0/24"
+  validation {
+    condition     = can(cidrhost(var.private_messaging_b_cidr, 0))
+    error_message = "private_messaging_b_cidr precisa ser um bloco CIDR válido."
+  }
+}
+variable "messaging_instance_type" {
+  description = "Tipo da instância de mensageria (RabbitMQ)"
+  type        = string
+  default     = "t3.small"
+}
+variable "rabbitmq_amqp_port" {
+  description = "Porta AMQP do RabbitMQ"
+  type        = number
+  default     = 5672
+}
+variable "rabbitmq_management_port" {
+  description = "Porta do painel de management do RabbitMQ"
+  type        = number
+  default     = 15672
+}

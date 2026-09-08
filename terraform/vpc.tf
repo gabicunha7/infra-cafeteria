@@ -121,3 +121,14 @@ resource "aws_route_table_association" "private_db" {
   subnet_id      = aws_subnet.private_db.id
   route_table_id = aws_route_table.private.id
 }
+
+resource "aws_subnet" "private_messaging_b" {
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.private_messaging_b_cidr
+  availability_zone = var.availability_zones[1]
+  tags = { Name = "${var.project_name}-private-messaging-b" }
+}
+resource "aws_route_table_association" "private_messaging_b" {
+  subnet_id      = aws_subnet.private_messaging_b.id
+  route_table_id = aws_route_table.private.id
+}

@@ -1,0 +1,8 @@
+---
+- name: Deploy do backend containerizado da cafeteria
+  hosts: backend
+  become: true
+
+  roles:
+    - docker
+    - app_back
